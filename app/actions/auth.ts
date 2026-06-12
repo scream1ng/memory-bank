@@ -1,30 +1,41 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db'
+import { users } from '@/lib/schema'
+import { createSession, clearSession } from '@/lib/auth'
+import { eq } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
+import bcrypt from 'bcryptjs'
 
 export async function signIn(formData: FormData) {
-  const supabase = await createClient()
-  const { error } = await supabase.auth.signInWithPassword({
-    email: formData.get('email') as string,
-    password: formData.get('password') as string,
-  })
-  if (error) return { error: error.message }
+  const email = (formData.get('email') as string).toLowerCase().trim()
+  const password = formData.get('password') as string
+
+  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1)
+  if (!user) return { error: 'Invalid email or password' }
+
+  const valid = await bcrypt.compare(password, user.password_hash)
+  if (!valid) return { error: 'Invalid email or password' }
+
+  await createSession(user.id, user.email)
   redirect('/')
 }
 
 export async function signUp(formData: FormData) {
-  const supabase = await createClient()
-  const { error } = await supabase.auth.signUp({
-    email: formData.get('email') as string,
-    password: formData.get('password') as string,
-  })
-  if (error) return { error: error.message }
+  const email = (formData.get('email') as string).toLowerCase().trim()
+  const password = formData.get('password') as string
+
+  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1)
+  if (existing) return { error: 'Email already registered' }
+
+  const password_hash = await bcrypt.hash(password, 12)
+  const [user] = await db.insert(users).values({ email, password_hash }).returning({ id: users.id, email: users.email })
+
+  await createSession(user.id, user.email)
   redirect('/')
 }
 
 export async function signOut() {
-  const supabase = await createClient()
-  await supabase.auth.signOut()
+  await clearSession()
   redirect('/login')
 }

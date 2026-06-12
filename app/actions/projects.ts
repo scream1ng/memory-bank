@@ -1,80 +1,64 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db'
+import { projects } from '@/lib/schema'
+import { getSession } from '@/lib/auth'
+import { eq, and } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
 export async function createProject(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const session = await getSession()
+  if (!session) redirect('/login')
 
   const name = (formData.get('name') as string ?? '').trim()
   if (!name) return { error: 'Name required' }
 
-  const { data, error } = await supabase
-    .from('projects')
-    .insert({ name, owner_id: user.id })
-    .select('id')
-    .single()
-
-  if (error) return { error: error.message }
+  const [row] = await db.insert(projects).values({ name, owner_id: session.userId }).returning({ id: projects.id })
   revalidatePath('/')
-  redirect(`/?p=${data.id}`)
+  redirect(`/?p=${row.id}`)
 }
 
 export async function renameProject(id: string, formData: FormData) {
-  const supabase = await createClient()
+  const session = await getSession()
+  if (!session) redirect('/login')
+
   const name = (formData.get('name') as string ?? '').trim()
   if (!name) return { error: 'Name required' }
 
-  const { error } = await supabase
-    .from('projects')
-    .update({ name })
-    .eq('id', id)
-
-  if (error) return { error: error.message }
+  await db.update(projects).set({ name }).where(and(eq(projects.id, id), eq(projects.owner_id, session.userId)))
   revalidatePath('/')
 }
 
 export async function deleteProject(id: string) {
-  const supabase = await createClient()
-  const { error } = await supabase
-    .from('projects')
-    .delete()
-    .eq('id', id)
+  const session = await getSession()
+  if (!session) redirect('/login')
 
-  if (error) return { error: error.message }
+  await db.delete(projects).where(and(eq(projects.id, id), eq(projects.owner_id, session.userId)))
   revalidatePath('/')
   redirect('/')
 }
 
 export async function pinProject(id: string) {
-  const supabase = await createClient()
-  const { error } = await supabase
-    .from('projects')
-    .update({ pinned_at: new Date().toISOString() })
-    .eq('id', id)
-  if (error) return { error: error.message }
+  const session = await getSession()
+  if (!session) redirect('/login')
+
+  await db.update(projects).set({ pinned_at: new Date().toISOString() }).where(and(eq(projects.id, id), eq(projects.owner_id, session.userId)))
   revalidatePath('/')
 }
 
 export async function unpinProject(id: string) {
-  const supabase = await createClient()
-  const { error } = await supabase
-    .from('projects')
-    .update({ pinned_at: null })
-    .eq('id', id)
-  if (error) return { error: error.message }
+  const session = await getSession()
+  if (!session) redirect('/login')
+
+  await db.update(projects).set({ pinned_at: null }).where(and(eq(projects.id, id), eq(projects.owner_id, session.userId)))
   revalidatePath('/')
 }
 
 export async function assignChatToSubject(chatId: string, subjectId: string | null) {
-  const supabase = await createClient()
-  const { error } = await supabase
-    .from('projects')
-    .update({ subject_id: subjectId })
-    .eq('id', chatId)
-  if (error) return { error: error.message }
+  const session = await getSession()
+  if (!session) redirect('/login')
+
+  await db.update(projects).set({ subject_id: subjectId }).where(and(eq(projects.id, chatId), eq(projects.owner_id, session.userId)))
   revalidatePath('/')
 }

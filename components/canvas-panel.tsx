@@ -4,7 +4,6 @@ import { useRef, useState, useTransition, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { sendMessage, createProjectSilent, createPhotoBlock } from '@/app/actions/canvas'
 import { deleteBlock, updateBlock } from '@/app/actions/blocks'
-import { createClient } from '@/lib/supabase/client'
 import type { MemoBlock, Project, Subject } from '@/lib/types'
 
 function formatTime(dateStr: string) {
@@ -27,8 +26,9 @@ function greeting(email: string) {
 function PhotoCard({ block, onDelete }: { block: MemoBlock; onDelete: () => void }) {
   const [url, setUrl] = useState<string | null>(null)
   useEffect(() => {
-    createClient().storage.from('project-media').createSignedUrl(block.content, 3600)
-      .then(({ data }) => { if (data) setUrl(data.signedUrl) })
+    fetch(`/api/photo?path=${encodeURIComponent(block.content)}`)
+      .then(r => r.json())
+      .then(d => { if (d.url) setUrl(d.url) })
   }, [block.content])
   return (
     <div className="group relative inline-block max-w-sm">
@@ -246,9 +246,6 @@ export default function CanvasPanel({ blocks, subjects, selectedProject, rightPa
     if (!file.type.startsWith('image/')) return
     setUploading(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
       let pid = selectedProject?.id ?? null
       if (!pid) {
         const res = await createProjectSilent(`Photos ${new Date().toLocaleDateString()}`)
@@ -256,9 +253,15 @@ export default function CanvasPanel({ blocks, subjects, selectedProject, rightPa
         pid = res.id
       }
       const ext = file.name.split('.').pop() ?? 'jpg'
-      const path = `${user.id}/${pid}/${Date.now()}.${ext}`
-      const { error } = await supabase.storage.from('project-media').upload(path, file)
-      if (error) return
+      const filename = `${Date.now()}.${ext}`
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: pid, filename, contentType: file.type }),
+      })
+      if (!res.ok) return
+      const { url, path } = await res.json()
+      await fetch(url, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } })
       await createPhotoBlock(pid, path)
       if (!selectedProject) router.push(`/?p=${pid}`)
     } finally { setUploading(false) }

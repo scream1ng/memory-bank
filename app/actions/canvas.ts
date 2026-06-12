@@ -1,23 +1,20 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db'
+import { memo_blocks, projects } from '@/lib/schema'
+import { getSession } from '@/lib/auth'
+import { eq, desc } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
-async function nextPosition(supabase: Awaited<ReturnType<typeof createClient>>, projectId: string) {
-  const { data } = await supabase
-    .from('memo_blocks')
-    .select('position')
-    .eq('project_id', projectId)
-    .order('position', { ascending: false })
-    .limit(1)
-  return data && data.length > 0 ? data[0].position + 1 : 0
+async function nextPosition(projectId: string) {
+  const [last] = await db.select({ position: memo_blocks.position }).from(memo_blocks).where(eq(memo_blocks.project_id, projectId)).orderBy(desc(memo_blocks.position)).limit(1)
+  return last ? last.position + 1 : 0
 }
 
 export async function sendMessage(content: string, projectId: string | null, subjectId: string | null = null) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const session = await getSession()
+  if (!session) redirect('/login')
 
   const trimmed = content.trim()
   if (!trimmed) return { error: 'Empty message' }
@@ -26,55 +23,33 @@ export async function sendMessage(content: string, projectId: string | null, sub
 
   if (!pid) {
     const name = trimmed.split('\n')[0].slice(0, 60) || new Date().toLocaleDateString()
-    const { data, error } = await supabase
-      .from('projects')
-      .insert({ name, owner_id: user.id, subject_id: subjectId })
-      .select('id')
-      .single()
-    if (error) return { error: error.message }
-    pid = data.id
+    const [row] = await db.insert(projects).values({ name, owner_id: session.userId, subject_id: subjectId }).returning({ id: projects.id })
+    pid = row.id
   }
 
-  const position = await nextPosition(supabase, pid!)
-
-  const { error } = await supabase
-    .from('memo_blocks')
-    .insert({ project_id: pid!, author_id: user.id, position, type: 'text', content: trimmed })
-
-  if (error) return { error: error.message }
+  const position = await nextPosition(pid!)
+  await db.insert(memo_blocks).values({ project_id: pid!, author_id: session.userId, position, type: 'text', content: trimmed })
 
   revalidatePath('/')
   return { projectId: pid! }
 }
 
 export async function createProjectSilent(name: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+  const session = await getSession()
+  if (!session) return { error: 'Not authenticated' }
 
-  const { data, error } = await supabase
-    .from('projects')
-    .insert({ name, owner_id: user.id })
-    .select('id')
-    .single()
-
-  if (error) return { error: error.message }
+  const [row] = await db.insert(projects).values({ name, owner_id: session.userId }).returning({ id: projects.id })
   revalidatePath('/')
-  return { id: data.id as string }
+  return { id: row.id }
 }
 
 export async function createPhotoBlock(projectId: string, storagePath: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const session = await getSession()
+  if (!session) redirect('/login')
 
-  const position = await nextPosition(supabase, projectId)
+  const position = await nextPosition(projectId)
+  await db.insert(memo_blocks).values({ project_id: projectId, author_id: session.userId, position, type: 'photo', content: storagePath })
 
-  const { error } = await supabase
-    .from('memo_blocks')
-    .insert({ project_id: projectId, author_id: user.id, position, type: 'photo', content: storagePath })
-
-  if (error) return { error: error.message }
   revalidatePath('/')
   return { ok: true }
 }
