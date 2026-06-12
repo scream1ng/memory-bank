@@ -47,6 +47,7 @@ export default function AppShell({
       {rightVisible && (
         <RightPanel
           blocks={blocks}
+          selectedProject={selectedProject}
           onClose={hasPhotos ? undefined : () => setRightOpen(false)}
         />
       )}

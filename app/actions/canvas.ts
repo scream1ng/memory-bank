@@ -6,6 +6,7 @@ import { getSession } from '@/lib/auth'
 import { eq, desc } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { refreshContext } from '@/lib/context'
 
 async function nextPosition(projectId: string) {
   const [last] = await db.select({ position: memo_blocks.position }).from(memo_blocks).where(eq(memo_blocks.project_id, projectId)).orderBy(desc(memo_blocks.position)).limit(1)
@@ -29,6 +30,7 @@ export async function sendMessage(content: string, projectId: string | null, sub
 
   const position = await nextPosition(pid!)
   await db.insert(memo_blocks).values({ project_id: pid!, author_id: session.userId, position, type: 'text', content: trimmed })
+  await refreshContext(pid!)
 
   revalidatePath('/')
   return { projectId: pid! }
@@ -49,6 +51,7 @@ export async function createPhotoBlock(projectId: string, storagePath: string) {
 
   const position = await nextPosition(projectId)
   await db.insert(memo_blocks).values({ project_id: projectId, author_id: session.userId, position, type: 'photo', content: storagePath })
+  await refreshContext(projectId)
 
   revalidatePath('/')
   return { ok: true }

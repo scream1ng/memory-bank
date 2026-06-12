@@ -33,3 +33,17 @@ export const memo_blocks = pgTable('memo_blocks', {
   position: integer('position').notNull().default(0),
   created_at: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
 })
+
+export const context_files = pgTable('context_files', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  project_id: uuid('project_id').notNull().unique().references(() => projects.id, { onDelete: 'cascade' }),
+  content: text('content').notNull().default(''),
+  updated_at: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+})
+
+export const ai_connections = pgTable('ai_connections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  user_id: uuid('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  api_key: text('api_key').notNull(), // TODO: encrypt
+  created_at: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+})
